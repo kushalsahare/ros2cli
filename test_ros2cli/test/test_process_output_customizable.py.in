@@ -28,14 +28,14 @@ import launch_testing.asserts
 
 sys.path.append(os.path.dirname(__file__))
 
-from @TEST_CONFIGURATION_FILE@ import configs  # noqa
+from @TEST_CONFIGURATION_FILE@ import test_configs  # noqa
 
 
-@launch_testing.parametrize('config', configs)
-def generate_test_description(config, ready_fn):
+@launch_testing.parametrize('test_config', test_configs)
+def generate_test_description(test_config, ready_fn):
     cmd = ['ros2', config.command]
     cmd.extend(config.arguments)
-    process_under_test = ExecuteProcess(
+    command_under_test = ExecuteProcess(
         cmd=cmd,
         name='@TEST_NAME@',
         output='screen',
@@ -43,37 +43,45 @@ def generate_test_description(config, ready_fn):
     )
     actions = config.actions
     actions.append(TimerAction(
-        period=@DELAY@,
-        actions=[process_under_test],
+        period=@COMMAND_DELAY@,
+        actions=[command_under_test],
     ))
     launch_description = LaunchDescription(actions)
     launch_description.add_action(
         OpaqueFunction(function=lambda context: ready_fn())
     )
-    msgs = config.expected_output
     return launch_description, locals()
 
 
 class TestCommandFinishesInAFiniteAmountOfTime(unittest.TestCase):
 
-    def @TEST_NAME@(self, process_under_test):
-        """Test that ros2 command finished in a finite amount of time."""
-        self.proc_info.assertWaitForShutdown(process=process_under_test, timeout=60)
+    def @TEST_NAME@(self, command_under_test):
+        """Test that the command under test finished in a finite amount of time."""
+        self.proc_info.assertWaitForShutdown(process=command_under_test, timeout=60)
 
 
 @launch_testing.post_shutdown_test()
 class TestCommandOutput(unittest.TestCase):
 
-    def @TEST_NAME@(self, proc_info, proc_output, process_under_test, msgs):
-        """Test that both executables finished cleanly."""
+    def @TEST_NAME@(self, proc_info, proc_output, command_under_test, test_config):
+        """Test that the command under test finished cleanly."""
         launch_testing.asserts.assertExitCodes(
             proc_info,
             [launch_testing.asserts.EXIT_OK],
-            process_under_test
+            command_under_test
         )
-        for msg in msgs:
-            launch_testing.asserts.assertInStdout(
-                proc_output,
-                msg,
-                process_under_test,
-            )
+        command_outputs = proc_output[command_under_test]
+        full_command_output_lines = ''.join(
+            output.text.decode() for output in command_outputs if output.from_stdout
+        ).splitlines()
+
+        for line in test_config.bad_output:
+            assert line not in full_command_output_lines
+
+        if test_config.expected_output is not None:
+            for line in test_config.expected_output:
+                assert line in full_command_output_lines
+                index = full_command_output_lines.index(line)
+                full_command_output_lines = full_command_output_lines[index + 1:]
+        else:
+            assert len(full_command_output_lines) == 0

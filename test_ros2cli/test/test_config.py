@@ -29,7 +29,8 @@ class TestConfig():
         command: str,
         arguments: Iterable[SomeSubstitutionsType],
         actions: Iterable[Action] = [],
-        expected_output: Iterable[str] = [],
+        expected_output: Optional[Iterable[str]] = None,
+        bad_output: Optional[Iterable[str]] = None,
         description: Optional[str] = None
     ):
         """

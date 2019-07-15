@@ -20,10 +20,19 @@ if(BUILD_TESTING)
   find_package(rmw_implementation_cmake REQUIRED)
 
   macro(custom_test_process_output test_name config_file_name timeout delay)
+    cmake_parse_arguments(_custom_test_process_output
+      ""
+      "FIXTURE_DELAY;TIMEOUT"
+      ${ARGN})
+
     # Set variables for configuring the test files.
     set(TEST_NAME ${test_name})  # test name used in the test cases
-    set(TEST_CONFIGURATION_FILE ${config_file_name})  # config file to use
-    set(DELAY ${delay})  # Delay between the actions are launch and the ros2 command is run
+    set(TEST_CONFIGURATION_MODULE ${test_name}_config)  # config file to use
+    # Delay between the actions are launch and the ros2 command is run
+    if (NOT DEFINED )
+      set(_custom_test_process_output_FIXTURE_DELAY 0)
+    endif()
+    set(FIXTURE_DELAY ${_custom_test_process_output_FIXTURE_DELAY})
 
     configure_file(
       test/test_process_output_customizable.py.in
@@ -43,7 +52,7 @@ if(BUILD_TESTING)
       TARGET ${test_name}${target_suffix}
       ENV RMW_IMPLEMENTATION=${rmw_implementation}
       APPEND_LIBRARY_DIRS "${append_library_dirs}"
-      TIMEOUT ${timeout}
+      TIMEOUT ${_custom_test_process_output_TIMEOUT}
     )
     list(
       APPEND generated_python_files
@@ -53,13 +62,19 @@ if(BUILD_TESTING)
 
   set(generated_python_files)
   macro(tests)
-    set(TEST_ROS2ACTION_DELAY 0.0)
+    set(FIXTURE_DELAY 0.0)
     if("${rmw_implementation}" STREQUAL "rmw_connext_cpp")
       # Connext startup is too slow. It needs a few seconds until discovery starts working.
-      set(TEST_ROS2ACTION_DELAY 5.0)
+      set(FIXTURE_DELAY 5.0)
     endif()
-    custom_test_process_output(test_ros2action config_ros2action_test 180 ${TEST_ROS2ACTION_DELAY})
-    custom_test_process_output(test_ros2msg config_ros2msg_test 60 0.0)
+    custom_test_process_output(test_ros2action
+      FIXTURE_DELAY ${FIXTURE_DELAY} TIMEOUT 180)
+    custom_test_process_output(test_ros2topic
+      FIXTURE_DELAY ${FIXTURE_DELAY} TIMEOUT 180)
+    custom_test_process_output(test_ros2service
+      FIXTURE_DELAY ${FIXTURE_DELAY} TIMEOUT 180)
+    custom_test_process_output(test_ros2msg TIMEOUT 60)
+    custom_test_process_output(test_ros2srv TIMEOUT 60)
   endmacro()
   install(
     FILES test/test_config.py
