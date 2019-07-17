@@ -1,0 +1,102 @@
+# Copyright 2019 Open Source Robotics Foundation, Inc.
+#
+# Licensed under the Apache License, Version 2.0 (the "License");
+# you may not use this file except in compliance with the License.
+# You may obtain a copy of the License at
+#
+#     http://www.apache.org/licenses/LICENSE-2.0
+#
+# Unless required by applicable law or agreed to in writing, software
+# distributed under the License is distributed on an "AS IS" BASIS,
+# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+# See the License for the specific language governing permissions and
+# limitations under the License.
+
+import os
+import sys
+
+import itertools
+import unittest
+
+from launch import LaunchDescription
+from launch.actions import ExecuteProcess
+from launch.actions import OpaqueFunction
+from launch.actions import TimerAction
+from launch.substitutions import LaunchConfiguration
+
+import launch_testing
+import launch_testing.asserts
+
+sys.path.append(os.path.dirname(__file__))
+
+from @TEST_CONFIGURATION_MODULE@ import test_configurations  # noqa
+
+
+@launch_testing.parametrize('test_configuration', test_configurations)
+def generate_test_description(test_configuration, ready_fn):
+    cmd = ['ros2', test_configuration.command]
+    cmd.extend(test_configuration.arguments)
+    command_under_test = ExecuteProcess(
+        cmd=cmd,
+        name='cli',
+        output='screen',
+        sigterm_timeout=LaunchConfiguration(
+            'sigterm_timeout', default=60
+        )
+    )
+    actions = [command_under_test]
+    if test_configuration.timeout is not None:
+        actions.append(TimerAction(
+            period=test_configuration.timeout,
+            actions=[Shutdown()],
+        ))
+    launch_description = LaunchDescription([
+        *test_configuration.actions,
+        TimerAction(
+            period=@TEST_SETUP_DELAY@,
+            actions=actions,
+        )
+    ])
+    launch_description.add_action(
+        OpaqueFunction(function=lambda context: ready_fn())
+    )
+    return launch_description, locals()
+
+
+class TestCommandFinishesInAFiniteAmountOfTime(unittest.TestCase):
+
+    def @TEST_NAME@(self, command_under_test):
+        """Test that the command under test finished in a finite amount of time."""
+        self.proc_info.assertWaitForShutdown(process=command_under_test, timeout=60)
+
+
+@launch_testing.post_shutdown_test()
+class TestCommandOutput(unittest.TestCase):
+
+    def @TEST_NAME@(self, proc_info, proc_output, command_under_test, test_configuration):
+        """Test that the command under test finished cleanly."""
+        launch_testing.asserts.assertExitCodes(
+            proc_info,
+            test_configurations.exit_codes,
+            command_under_test
+        )
+
+        for process, expected_output in test_configuration.expected_output.iteritems():
+            process_output_lines = ''.join(
+                output.text.decode() for output in proc_output[process] if output.from_stdout
+            ).splitlines()
+            if expected_output is not None:
+                if not callable(expected_output):
+                    output_lines_n_patterns = zip(process_output_lines, expected_output)
+                    assert len(output_lines_n_patterns) == len(process_output_lines)
+                    for line, pattern in output_lines_n_patterns:
+                        if callable(pattern):
+                            assert pattern(line)
+                        elif hasattr(pattern, 'match'):
+                            assert pattern.match(line) is not None
+                        else:
+                            assert line in pattern
+                else:
+                    assert expected_output(process_output_lines)
+            else:
+                assert len(process_output_lines) == 0

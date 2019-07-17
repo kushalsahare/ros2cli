@@ -19,23 +19,26 @@ if(BUILD_TESTING)
   find_package(ros_testing REQUIRED)
   find_package(rmw_implementation_cmake REQUIRED)
 
-  macro(custom_test_process_output test_name config_file_name timeout delay)
-    cmake_parse_arguments(_custom_test_process_output
-      ""
-      "FIXTURE_DELAY;TIMEOUT"
-      ${ARGN})
+  macro(add_custom_cli_test test_name)
+    cmake_parse_arguments(TEST_ "" "CONFIG_MODULE;SETUP_DELAY;TIMEOUT" "" ${ARGN})
 
     # Set variables for configuring the test files.
-    set(TEST_NAME ${test_name})  # test name used in the test cases
-    set(TEST_CONFIGURATION_MODULE ${test_name}_config)  # config file to use
-    # Delay between the actions are launch and the ros2 command is run
-    if (NOT DEFINED )
-      set(_custom_test_process_output_FIXTURE_DELAY 0)
+    set(TEST_NAME test_${CLI_NAME})  # Name for test cases
+    # Module for test configuration
+    if (NOT DEFINED TEST_CONFIG_MODULE)
+      set(TEST_CONFIG_MODULE ${TEST_NAME}_config)
+    endif ()
+    # Delay for test fixture actions to setup before running a test command
+    if(NOT DEFINED TEST_SETUP_DELAY)
+      set(TEST_SETUP_DELAY 0)
     endif()
-    set(FIXTURE_DELAY ${_custom_test_process_output_FIXTURE_DELAY})
+    # Timeout for test itself
+    if (NOT DEFINED TEST_TIMEOUT)
+      set(TEST_TIMEOUT 0)
+    endif()
 
     configure_file(
-      test/test_process_output_customizable.py.in
+      test/test_cli.py.in
       ${test_name}${target_suffix}.py.genexp
       @ONLY
     )
@@ -52,7 +55,7 @@ if(BUILD_TESTING)
       TARGET ${test_name}${target_suffix}
       ENV RMW_IMPLEMENTATION=${rmw_implementation}
       APPEND_LIBRARY_DIRS "${append_library_dirs}"
-      TIMEOUT ${_custom_test_process_output_TIMEOUT}
+      TIMEOUT ${TEST_TIMEOUT}
     )
     list(
       APPEND generated_python_files
@@ -61,20 +64,32 @@ if(BUILD_TESTING)
   endmacro()
 
   set(generated_python_files)
-  macro(tests)
-    set(FIXTURE_DELAY 0.0)
+  macro(custom_cli_tests)
+    set(SETUP_DELAY 0.0)
     if("${rmw_implementation}" STREQUAL "rmw_connext_cpp")
       # Connext startup is too slow. It needs a few seconds until discovery starts working.
-      set(FIXTURE_DELAY 5.0)
+      set(SETUP_DELAY 5.0)
     endif()
-    custom_test_process_output(test_ros2action
-      FIXTURE_DELAY ${FIXTURE_DELAY} TIMEOUT 180)
-    custom_test_process_output(test_ros2topic
-      FIXTURE_DELAY ${FIXTURE_DELAY} TIMEOUT 180)
-    custom_test_process_output(test_ros2service
-      FIXTURE_DELAY ${FIXTURE_DELAY} TIMEOUT 180)
-    custom_test_process_output(test_ros2msg TIMEOUT 60)
-    custom_test_process_output(test_ros2srv TIMEOUT 60)
+    add_custom_cli_test(
+      test_ros2action
+      CONFIG_MODULE ros2action_test_configuration
+      SETUP_DELAY ${SETUP_DELAY} TIMEOUT 180)
+    add_custom_cli_test(
+      test_ros2topic
+      CONFIG_MODULE ros2topic_test_configuration
+      SETUP_DELAY ${SETUP_DELAY} TIMEOUT 180)
+    add_custom_cli_test(
+      test_ros2service
+      CONFIG_MODULE ros2service_test_configuration
+      SETUP_DELAY ${SETUP_DELAY} TIMEOUT 180)
+    add_custom_cli_test(
+      test_ros2msg
+      CONFIG_MODULE ros2msg_test_configuration
+      TIMEOUT 60)
+    add_custom_cli_test(
+      test_ros2srv
+      CONFIG_MODULE ros2srv_test_configuration
+      TIMEOUT 60)
   endmacro()
   install(
     FILES test/test_config.py
@@ -86,7 +101,7 @@ if(BUILD_TESTING)
     set(append_library_dirs "${append_library_dirs}/$<CONFIG>")
   endif()
 
-  call_for_each_rmw_implementation(tests)
+  call_for_each_rmw_implementation(custom_cli_tests)
 
   find_package(ament_cmake_flake8 REQUIRED)
   ament_flake8(

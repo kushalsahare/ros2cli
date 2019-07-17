@@ -20,7 +20,7 @@ from launch import SomeSubstitutionsType
 from launch.utilities import normalize_to_list_of_substitutions
 
 
-class TestConfig():
+class CLITestConfiguration(object):
     """A class for configuring the `test_process_output_customizable.py.in` test."""
 
     def __init__(
@@ -30,7 +30,7 @@ class TestConfig():
         arguments: Iterable[SomeSubstitutionsType],
         actions: Iterable[Action] = [],
         expected_output: Optional[Iterable[str]] = None,
-        bad_output: Optional[Iterable[str]] = None,
+        exit_codes: Optional[Iterable[int]] = None,
         description: Optional[str] = None
     ):
         """
@@ -49,6 +49,9 @@ class TestConfig():
         self.arguments = [normalize_to_list_of_substitutions(arg) for arg in arguments]
         self.actions = actions
         self.expected_output = expected_output
+        if exit_codes is None:
+            exit_codes = [launch_testing.asserts.EXIT_OK]
+        self.exit_codes = exit_codes
         self.description = description
 
         def describe(some_subs: SomeSubstitutionsType):

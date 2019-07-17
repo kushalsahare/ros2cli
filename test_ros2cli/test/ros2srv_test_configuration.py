@@ -13,11 +13,12 @@
 # limitations under the License.
 
 import os
+import re
 import sys
 
 sys.path.append(os.path.dirname(__file__))
 
-from test_config import TestConfig  # noqa
+from cli_test_configuration import CLITestConfiguration  # noqa
 
 some_services_from_std_srvs = [
     'std_srvs/srv/Empty',
@@ -25,40 +26,58 @@ some_services_from_std_srvs = [
     'std_srvs/srv/Trigger',
 ]
 
-configs = [
-    TestConfig(
+test_configurations = [
+    CLITestConfiguration(
         command='srv',
         arguments=['list'],
-        expected_output=some_services_from_std_srvs,
+        expected_output=(
+            lambda lines: (
+                all(srv in lines for srv in some_services_from_std_srvs) and
+                all(re.match(r'.*/srv/.*', line) is not None for line in lines)
+            )
+        )
     ),
-    TestConfig(
+    CLITestConfiguration(
         command='srv',
         arguments=['package', 'std_srvs'],
         expected_output=some_services_from_std_srvs,
     ),
-    TestConfig(
+    CLITestConfiguration(
         command='srv',
-        arguments=['package', 'not_a_package_with_services'],
+        arguments=['package', 'not_a_package'],
         expected_output=['Unknown package name'],
     ),
-    TestConfig(
+    CLITestConfiguration(
         command='srv',
         arguments=['packages'],
-        expected_output=['std_srvs'],
+        expected_output=lambda lines: 'std_srvs' in lines,
     ),
-    TestConfig(
+    CLITestConfiguration(
         command='srv',
         arguments=['show', 'std_srvs/srv/SetBool'],
         expected_output=['bool data', '---', 'bool success', 'string message'],
     ),
-    TestConfig(
+    CLITestConfiguration(
         command='srv',
         arguments=['show', 'std_srvs/srv/Trigger'],
         expected_output=['---', 'bool success', 'string message'],
     ),
-    TestConfig(
+    CLITestConfiguration(
         command='srv',
-        arguments=['show', 'std_srvs/srv/NotAService'],
+        arguments=['show', 'std_srvs/srv/NotAServiceType'],
         expected_output=['Unknown service name'],
+        exit_codes=[1]
+    ),
+    CLITestConfiguration(
+        command='srv',
+        arguments=['show', 'not_a_package/srv/Empty'],
+        expected_output=['Unknown package name'],
+        exit_codes=[1]
+    ),
+    CLITestConfiguration(
+        command='srv',
+        arguments=['show', 'not_a_service_type'],
+        expected_output=['The passed service type is invalid'],
+        exit_codes=[1]
     ),
 ]

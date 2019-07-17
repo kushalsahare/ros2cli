@@ -13,6 +13,7 @@
 # limitations under the License.
 
 import os
+import re
 import sys
 
 from launch.actions import ExecuteProcess
@@ -22,7 +23,7 @@ from launch_ros.substitutions import ExecutableInPackage
 
 sys.path.append(os.path.dirname(__file__))
 
-from test_config import TestConfig  # noqa
+from cli_test_configuration import CLITestConfiguration  # noqa
 
 
 def get_action_server_node_action():
@@ -41,67 +42,77 @@ common_info_output = [
     'Action servers: 1',
 ]
 
-common_send_goal_output = [
-    'Waiting for an action server to become available...',
-    'Sending goal:',
-    'order: 5',
-    'Goal accepted with ID:',
-    'Result:',
-    'sequence:',
-    '0',
-    '1',
-    '2',
-    '3',
-    '5',
-    'Goal finished with status: SUCCEEDED',
-]
+def get_fibonacci_send_goal_output(*, order=1, with_feedback=False):
+    assert order > 0
+    output = [
+        'Waiting for an action server to become available...',
+        'Sending goal:',
+        '     order: {}'.format(order),
+        '',
+        re.compile('Goal accepted with ID: [a-f0-9]+'),
+        '',
+    ]
+    sequence = [0, 1]
+    for _ in range(order - 1):
+        sequence.append(sequence[-1] + sequence[-2])
+        if with_feedback:
+            output.append('Feedback:')
+            output.extend(('    ' + yaml.dump({
+                'partial_sequence: ': sequence
+            })).splitlines())
+    output.append('Result:'),
+    output.extend(('    ' + yaml.dump({
+        'sequence: ': sequence
+    })).splitlines())
+    output.append('Goal finished with status: SUCCEEDED')
+    return output
 
-configs = [
-    TestConfig(
+test_configurations = [
+    CLITestConfiguration(
         command='action',
         arguments=['info', '/fibonacci'],
-        actions=[get_action_server_node_action()],
+        fixture_actions=[get_action_server_node_action()],
         expected_output=common_info_output + ['/fibonacci_action_server'],
     ),
-    TestConfig(
+    CLITestConfiguration(
         command='action',
         arguments=['info', '-t', '/fibonacci'],
-        actions=[get_action_server_node_action()],
+        fixture_actions=[get_action_server_node_action()],
         expected_output=common_info_output + [
             '/fibonacci_action_server [action_tutorials/action/Fibonacci]'
         ],
     ),
-    TestConfig(
+    CLITestConfiguration(
         command='action',
         arguments=['info', '-c', '/fibonacci'],
-        actions=[get_action_server_node_action()],
+        fixture_actions=[get_action_server_node_action()],
         expected_output=common_info_output,
     ),
-    TestConfig(
+    CLITestConfiguration(
         command='action',
         arguments=['list'],
-        actions=[get_action_server_node_action()],
+        fixture_actions=[get_action_server_node_action()],
         expected_output=['/fibonacci'],
     ),
-    TestConfig(
+    CLITestConfiguration(
         command='action',
         arguments=['list', '-t'],
-        actions=[get_action_server_node_action()],
+        fixture_actions=[get_action_server_node_action()],
         expected_output=['/fibonacci [action_tutorials/action/Fibonacci]'],
     ),
-    TestConfig(
+    CLITestConfiguration(
         command='action',
         arguments=['list', '-c'],
-        actions=[get_action_server_node_action()],
-        expected_output=['1'],
+        fixture_actions=[get_action_server_node_action()],
+        expected_output=[lambda line: int(line) == 1],
     ),
-    TestConfig(
+    CLITestConfiguration(
         command='action',
         arguments=['send_goal', '/fibonacci', 'action_tutorials/action/Fibonacci', '{order: 5}'],
-        actions=[get_action_server_node_action()],
-        expected_output=common_send_goal_output,
+        fixture_action=actions=[get_action_server_node_action()],
+        expected_output=get_fibonacci_send_goal_output(order=5)
     ),
-    TestConfig(
+    CLITestConfiguration(
         command='action',
         arguments=[
             'send_goal',
@@ -110,13 +121,10 @@ configs = [
             'action_tutorials/action/Fibonacci',
             '{order: 5}'
         ],
-        actions=[get_action_server_node_action()],
-        expected_output=common_send_goal_output + [
-            'Feedback:',
-            'partial_sequence:',
-        ],
+        fixture_actions=[get_action_server_node_action()],
+        expected_output=get_fibonacci_send_goal_output(order=5, with_feedback=True)
     ),
-    TestConfig(
+    CLITestConfiguration(
         command='action',
         arguments=['show', 'action_tutorials/action/Fibonacci'],
         expected_output=[
@@ -127,4 +135,17 @@ configs = [
             'int32[] partial_sequence'
         ],
     ),
+    CLITestConfiguration(
+        command='action',
+        arguments=['show', 'not_a_package/action/Fibonacci'],
+        expected_output=['Unknown package name'],
+        exit_codes=[1]
+    ),
+    CLITestConfiguration(
+        command='action',
+        arguments=['show', 'action_tutorials/action/NotAnActionType'],
+        expected_output=['Unknown action type'],
+        exit_codes=[1]
+    ),
+
 ]
