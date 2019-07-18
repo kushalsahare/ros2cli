@@ -32,7 +32,7 @@ test_configurations = [
         arguments=['list'],
         expected_output=(
             lambda lines: (
-                all(srv in lines for srv in some_messages_from_std_msgs) and
+                all(msg in lines for msg in some_messages_from_std_msgs) and
                 all(re.match(r'.*/msg/.*', line) is not None for line in lines)
             )
         )
@@ -40,12 +40,18 @@ test_configurations = [
     CLITestConfiguration(
         command='msg',
         arguments=['package', 'std_msgs'],
-        expected_output=some_messages_from_std_msgs,
+        expected_output=(
+            lambda lines: (
+                all(msg in lines for msg in some_messages_from_std_msgs) and
+                all(re.match(r'std_msgs/msg/.*', line) is not None for line in lines)
+            )
+        )
     ),
     CLITestConfiguration(
         command='msg',
         arguments=['package', 'not_a_package'],
         expected_output=['Unknown package name'],
+        exit_codes=[1]
     ),
     CLITestConfiguration(
         command='msg',

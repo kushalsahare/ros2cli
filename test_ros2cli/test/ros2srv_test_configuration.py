@@ -40,27 +40,33 @@ test_configurations = [
     CLITestConfiguration(
         command='srv',
         arguments=['package', 'std_srvs'],
-        expected_output=some_services_from_std_srvs,
+        expected_output=(
+            lambda lines: (
+                all(srv in lines for srv in some_services_from_std_srvs) and
+                all(re.match(r'std_srvs/srv/.*', line) is not None for line in lines)
+            )
+        )
     ),
     CLITestConfiguration(
         command='srv',
         arguments=['package', 'not_a_package'],
         expected_output=['Unknown package name'],
+        exit_codes=[1]
     ),
     CLITestConfiguration(
         command='srv',
         arguments=['packages'],
-        expected_output=lambda lines: 'std_srvs' in lines,
+        expected_output=lambda lines: 'std_srvs' in lines
     ),
     CLITestConfiguration(
         command='srv',
         arguments=['show', 'std_srvs/srv/SetBool'],
-        expected_output=['bool data', '---', 'bool success', 'string message'],
+        expected_output=['bool data', '---', 'bool success', 'string message']
     ),
     CLITestConfiguration(
         command='srv',
         arguments=['show', 'std_srvs/srv/Trigger'],
-        expected_output=['---', 'bool success', 'string message'],
+        expected_output=['---', 'bool success', 'string message']
     ),
     CLITestConfiguration(
         command='srv',

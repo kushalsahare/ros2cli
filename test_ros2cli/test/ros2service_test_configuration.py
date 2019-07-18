@@ -12,14 +12,13 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
+import itertools
+
 import os
 import re
 import sys
 
-import itertools
-
 from launch.substitutions import LaunchConfiguration
-
 from launch_ros.actions import Node
 
 sys.path.append(os.path.dirname(__file__))
@@ -27,15 +26,16 @@ sys.path.append(os.path.dirname(__file__))
 from cli_test_configuration import CLITestConfiguration  # noqa
 
 
-def get_add_two_ints_server(service_name=None):
-    remappings = None
-    if service_name is not None:
-        remappings = [('add_two_ints', service_name)]
+def get_add_two_ints_server_action(*, node_name='my_add_two_ints_server',
+                                   node_namespace='my_ns',
+                                   service_name='add_two_ints'):
     return Node(
         package='demo_nodes_py', node_executable='add_two_ints_server',
-        node_namespace='my_ns', output='screen', remappings=remappings,
+        node_name=node_name, node_namespace=node_namespace,
+        output='screen', remappings=[('add_two_ints', service_name)],
         sigterm_timeout=LaunchConfiguration('sigterm_timeout', default=30)
     )
+
 
 def get_add_two_ints_call_output(*, a=0, b=0):
     return [
@@ -43,96 +43,161 @@ def get_add_two_ints_call_output(*, a=0, b=0):
         'example_interfaces.srv.AddTwoInts_Request(a={}, b={})'.format(a, b),
         '',
         'response:',
-        'example_interfaces.srv.AddTwoInts_Response(sum={})'.format(a + b)
+        'example_interfaces.srv.AddTwoInts_Response(sum={})'.format(a + b),
+        ''
     ]
+
 
 test_configurations = [
     CLITestConfiguration(
         command='service',
         arguments=['list'],
-        actions=[get_add_two_ints_server(),
-                 get_add_two_ints_server(service_name='_hidden_add_two_ints')],
-        expected_output=['/add_two_ints', re.compile(r'/add_two_ints_server/.*parameter.*')],
+        fixture_actions=[get_add_two_ints_server_action(),
+                         get_add_two_ints_server_action(service_name='_add_two_ints')],
+        expected_output=itertools.chain(
+            # Cope with launch internal ROS 2 node.
+            itertools.repeat(re.compile(r'/launch_ros/.*parameter.*'), 6),
+            ['/my_ns/add_two_ints'],
+            itertools.repeat(re.compile(
+                r'/my_ns/my_add_two_ints_server/.*parameter.*'
+            ), 6)
+        )
     ),
     CLITestConfiguration(
         command='service',
-        arguments=[' --include-hidden-services list'],
-        actions=[get_add_two_ints_server(),
-                 get_add_two_ints_server(service_name='_add_two_ints')],
-        expected_output=['/_add_two_ints', '/add_two_ints'],
+        arguments=['--include-hidden-services', 'list'],
+        fixture_actions=[get_add_two_ints_server_action(),
+                         get_add_two_ints_server_action(service_name='_add_two_ints')],
+        expected_output=itertools.chain(
+            # Cope with launch internal ROS 2 node.
+            itertools.repeat(re.compile(r'/launch_ros/.*parameter.*'), 6),
+            ['/my_ns/_add_two_ints', '/my_ns/add_two_ints'],
+            itertools.repeat(re.compile(
+                r'/my_ns/my_add_two_ints_server/.*parameter.*'
+            ), 6)
+        )
     ),
     CLITestConfiguration(
         command='service',
-        arguments=['list -t'],
-        actions=[get_add_two_ints_server()],
-        expected_output=itertools.chain([
-            '/add_two_ints [example_interfaces/srv/AddTwoInts]',
-        ], itertools.repeat(
-            re.compile(r'/add_two_ints_server/.*parameter.* \[rcl_interfaces/srv/.*Parameter.*\]')
-        )),
+        arguments=['list', '-t'],
+        fixture_actions=[get_add_two_ints_server_action()],
+        expected_output=itertools.chain(
+            # Cope with launch internal ROS 2 node.
+            itertools.repeat(re.compile(
+                r'/launch_ros/.*parameter.* \[rcl_interfaces/srv/.*Parameter.*\]'
+            ), 6),
+            ['/my_ns/add_two_ints [example_interfaces/srv/AddTwoInts]'],
+            itertools.repeat(re.compile(
+                r'/my_ns/my_add_two_ints_server/.*parameter.* \[rcl_interfaces/srv/.*Parameter.*\]'
+            ), 6)
+        )
     ),
     CLITestConfiguration(
         command='service',
-        arguments=['list -c'],
-        actions=[get_add_two_ints_server()],
-        expected_output=[lambda line: int(line) > 0],
+        arguments=['list', '-c'],
+        fixture_actions=[get_add_two_ints_server_action()],
+        expected_output=[lambda line: int(line) > 0]
     ),
     CLITestConfiguration(
         command='service',
         arguments=['find', 'example_interfaces/srv/AddTwoInts'],
-        actions=[get_add_two_ints_server()],
-        expected_output=['/add_two_ints'],
+        fixture_actions=[get_add_two_ints_server_action()],
+        expected_output=['/my_ns/add_two_ints']
     ),
     CLITestConfiguration(
         command='service',
         arguments=['find', '-c', 'example_interfaces/srv/AddTwoInts'],
-        actions=[get_add_two_ints_server()],
-        expected_output=[lambda line: int(line) == 1],
+        fixture_actions=[get_add_two_ints_server_action()],
+        expected_output=[lambda line: int(line) == 1]
+    ),
+    CLITestConfiguration(
+        command='service',
+        arguments=['find', 'not_a_service_type'],
+        expected_output=None
     ),
     CLITestConfiguration(
         command='service',
         arguments=['find', '--include-hidden-services',
                    'example_interfaces/srv/AddTwoInts'],
-        actions=[get_add_two_ints_server(),
-                 get_add_two_ints_server(service_name='_add_two_ints')],
-        expected_output=['/_add_two_ints', '/add_two_ints'],
+        fixture_actions=[get_add_two_ints_server_action(),
+                         get_add_two_ints_server_action(service_name='_add_two_ints')],
+        expected_output=['/my_ns/_add_two_ints', '/my_ns/add_two_ints'],
     ),
     CLITestConfiguration(
         command='service',
-        arguments=['type', '/add_two_ints'],
-        actions=[get_add_two_ints_server()],
+        arguments=['type', '/not_a_service'],
+        expected_output=None,
+        exit_codes=[1]
+    ),
+    CLITestConfiguration(
+        command='service',
+        arguments=['type', '/my_ns/add_two_ints'],
+        fixture_actions=[get_add_two_ints_server_action()],
         expected_output=['example_interfaces/srv/AddTwoInts'],
     ),
     CLITestConfiguration(
         command='service',
-        arguments=['call', '/add_two_ints'],
-        actions=[get_add_two_ints_server()],
-        expected_output=['waiting for service to become available...',
-                         *get_add_two_ints_call_output()],
+        arguments=['call', '/not_a_service', 'not_a_service_type'],
+        expected_output=['The passed service type is invalid'],
+        exit_codes=[1]
     ),
     CLITestConfiguration(
         command='service',
-        arguments=['call', '/add_two_ints', '{a: 1, b: -1}'],
-        actions=[get_add_two_ints_server()],
-        expected_output=['waiting for service to become available...',
-                         *get_add_two_ints_call_output(a=1, b=-1)],
+        arguments=['call', '/my_ns/add_two_ints', 'example_interfaces/srv/AddTwoInts'],
+        fixture_actions=[get_add_two_ints_server_action()],
+        expected_output=[
+            'waiting for service to become available...',
+            *get_add_two_ints_call_output()
+        ],
     ),
     CLITestConfiguration(
         command='service',
-        arguments=['call', '/add_two_ints', '{a: 1, b: 1}', '-r 0.5'],
-        actions=[get_add_two_ints_server()],
-        expected_output=['waiting for service to become available...',
-                         *get_add_two_ints_call_output(a=1, b=1)],
+        arguments=[
+            'call',
+            '/my_ns/add_two_ints',
+            'example_interfaces/srv/AddTwoInts',
+            '{a: 1, b: -1}'
+        ],
+        fixture_actions=[get_add_two_ints_server_action()],
+        expected_output=[
+            'waiting for service to become available...',
+            *get_add_two_ints_call_output(a=1, b=-1)
+        ],
+    ),
+    CLITestConfiguration(
+        command='service',
+        arguments=[
+            'call',
+            '-r', '0.5',
+            '/my_ns/add_two_ints',
+            'example_interfaces/srv/AddTwoInts',
+            '{a: 1, b: 1}'
+        ],
+        fixture_actions=[get_add_two_ints_server_action()],
+        expected_output=[
+            'waiting for service to become available...',
+            *get_add_two_ints_call_output(a=1, b=1)
+        ],
+        self_terminates=False,
         exit_codes=[2],
-        timeout=1
+        timeout=1.0
     ),
     CLITestConfiguration(
         command='service',
-        arguments=['call', '/add_two_ints', '{a: 1, b: 1}', '-r 1'],
-        actions=[get_add_two_ints_server()],
-        expected_output=['waiting for service to become available...',
-                         *(get_add_two_ints_call_output(a=1, b=1) * 2)],
+        arguments=[
+            'call',
+            '-r', '1',
+            '/my_ns/add_two_ints',
+            'example_interfaces/srv/AddTwoInts',
+            '{a: 1, b: 1}'
+        ],
+        fixture_actions=[get_add_two_ints_server_action()],
+        expected_output=[
+            'waiting for service to become available...',
+            *(get_add_two_ints_call_output(a=1, b=1) * 3)
+        ],
+        self_terminates=False,
         exit_codes=[2],
-        timeout=2
-    ),
+        timeout=2.0
+    )
 ]

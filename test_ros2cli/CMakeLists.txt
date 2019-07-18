@@ -20,20 +20,20 @@ if(BUILD_TESTING)
   find_package(rmw_implementation_cmake REQUIRED)
 
   macro(add_custom_cli_test test_name)
-    cmake_parse_arguments(TEST_ "" "CONFIG_MODULE;SETUP_DELAY;TIMEOUT" "" ${ARGN})
-
     # Set variables for configuring the test files.
-    set(TEST_NAME test_${CLI_NAME})  # Name for test cases
-    # Module for test configuration
-    if (NOT DEFINED TEST_CONFIG_MODULE)
-      set(TEST_CONFIG_MODULE ${TEST_NAME}_config)
-    endif ()
+    cmake_parse_arguments(TEST "" "CONFIG_MODULE;SETUP_DELAY;TIMEOUT" "" ${ARGN})
+    # Name for test cases
+    set(TEST_NAME ${test_name})
+    # Module carrying test configuration
+    if(NOT DEFINED TEST_CONFIG_MODULE)
+      set(TEST_CONFIG_MODULE ${test_name}_config)
+    endif()
     # Delay for test fixture actions to setup before running a test command
     if(NOT DEFINED TEST_SETUP_DELAY)
-      set(TEST_SETUP_DELAY 0)
+      set(TEST_SETUP_DELAY 0.0)
     endif()
     # Timeout for test itself
-    if (NOT DEFINED TEST_TIMEOUT)
+    if(NOT DEFINED TEST_TIMEOUT)
       set(TEST_TIMEOUT 0)
     endif()
 
@@ -47,7 +47,7 @@ if(BUILD_TESTING)
       INPUT "${CMAKE_CURRENT_BINARY_DIR}/${test_name}${target_suffix}.py.genexp"
     )
     install(
-      FILES test/${config_file_name}.py
+      FILES test/${TEST_CONFIG_MODULE}.py
       DESTINATION "${CMAKE_CURRENT_BINARY_DIR}"
     )
     add_ros_test(
@@ -92,7 +92,7 @@ if(BUILD_TESTING)
       TIMEOUT 60)
   endmacro()
   install(
-    FILES test/test_config.py
+    FILES test/cli_test_configuration.py
     DESTINATION "${CMAKE_CURRENT_BINARY_DIR}"
   )
 

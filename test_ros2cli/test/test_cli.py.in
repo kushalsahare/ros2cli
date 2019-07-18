@@ -15,7 +15,6 @@
 import os
 import sys
 
-import itertools
 import unittest
 
 from launch import LaunchDescription
@@ -26,10 +25,11 @@ from launch.substitutions import LaunchConfiguration
 
 import launch_testing
 import launch_testing.asserts
+import launch_testing.util
 
 sys.path.append(os.path.dirname(__file__))
 
-from @TEST_CONFIGURATION_MODULE@ import test_configurations  # noqa
+from @TEST_CONFIG_MODULE@ import test_configurations  # noqa
 
 
 @launch_testing.parametrize('test_configuration', test_configurations)
@@ -45,29 +45,30 @@ def generate_test_description(test_configuration, ready_fn):
         )
     )
     actions = [command_under_test]
-    if test_configuration.timeout is not None:
-        actions.append(TimerAction(
-            period=test_configuration.timeout,
-            actions=[Shutdown()],
-        ))
+    actions.append(
+        OpaqueFunction(function=lambda context: ready_fn())
+    )
     launch_description = LaunchDescription([
-        *test_configuration.actions,
+        *test_configuration.fixture_actions,
         TimerAction(
             period=@TEST_SETUP_DELAY@,
             actions=actions,
         )
     ])
-    launch_description.add_action(
-        OpaqueFunction(function=lambda context: ready_fn())
-    )
     return launch_description, locals()
 
 
 class TestCommandFinishesInAFiniteAmountOfTime(unittest.TestCase):
 
-    def @TEST_NAME@(self, command_under_test):
+    def @TEST_NAME@(self, proc_info, command_under_test, test_configuration):
         """Test that the command under test finished in a finite amount of time."""
-        self.proc_info.assertWaitForShutdown(process=command_under_test, timeout=60)
+        success = proc_info.waitForShutdown(
+            process=command_under_test, timeout=test_configuration.timeout
+        )
+        if test_configuration.self_terminates:
+            assert success, "Timed out waiting for process '{}' to finish".format(
+                command_under_test
+            )
 
 
 @launch_testing.post_shutdown_test()
@@ -77,26 +78,41 @@ class TestCommandOutput(unittest.TestCase):
         """Test that the command under test finished cleanly."""
         launch_testing.asserts.assertExitCodes(
             proc_info,
-            test_configurations.exit_codes,
+            test_configuration.exit_codes,
             command_under_test
         )
-
-        for process, expected_output in test_configuration.expected_output.iteritems():
-            process_output_lines = ''.join(
-                output.text.decode() for output in proc_output[process] if output.from_stdout
-            ).splitlines()
+        processes_expected_output = test_configuration.expected_output
+        if not isinstance(processes_expected_output, dict):
+            processes_expected_output = {'cli': processes_expected_output}
+        for process_name, expected_output in processes_expected_output.items():
             if expected_output is not None:
+                process = launch_testing.util.resolveProcesses(
+                    info_obj=proc_output, process=process_name
+                )[0]
+
+                process_output_lines = ''.join(
+                    output.text.decode()
+                    for output in proc_output[process]
+                    if output.from_stdout
+                ).splitlines()
+
                 if not callable(expected_output):
-                    output_lines_n_patterns = zip(process_output_lines, expected_output)
+                    output_lines_n_patterns = list(zip(process_output_lines, expected_output))
                     assert len(output_lines_n_patterns) == len(process_output_lines)
                     for line, pattern in output_lines_n_patterns:
                         if callable(pattern):
                             assert pattern(line)
                         elif hasattr(pattern, 'match'):
+                            if pattern.match(line) is None:
+                                raise RuntimeError(str(pattern) + ' in ' + line)
                             assert pattern.match(line) is not None
                         else:
-                            assert line in pattern
+                            assert pattern in line
                 else:
                     assert expected_output(process_output_lines)
             else:
-                assert len(process_output_lines) == 0
+                with self.assertRaises(launch_testing.util.NoMatchingProcessException):
+                    launch_testing.util.resolveProcesses(
+                        info_obj=proc_output,
+                        process=process_name
+                    )
