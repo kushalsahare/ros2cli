@@ -12,7 +12,6 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-from ros2cli.node.direct import DirectNode
 from ros2cli.node.strategy import add_arguments
 from ros2cli.node.strategy import NodeStrategy
 
@@ -31,7 +30,7 @@ class LoadVerb(VerbExtension):
     def add_arguments(self, parser, cli_name):
         add_arguments(parser)
         argument = parser.add_argument(
-            'container_node_name', help='Container node name to unload component from'
+            'container_node_name', help='Container node name to load component into'
         )
         argument.completer = container_node_name_completer
         add_component_arguments(parser)
@@ -42,9 +41,9 @@ class LoadVerb(VerbExtension):
 
     def main(self, *, args):
         with NodeStrategy(args) as node:
-            node_names = get_node_names(node=node)
-        with DirectNode(args) as node:
-            container_node_names = find_container_node_names(node=node, node_names=node_names)
+            container_node_names = find_container_node_names(
+                node=node, node_names=get_node_names(node=node)
+            )
             if args.container_node_name not in [n.full_name for n in container_node_names]:
                 return "Unable to find container node '" + args.container_node_name + "'"
             component_uid, component_name = load_component_into_container(

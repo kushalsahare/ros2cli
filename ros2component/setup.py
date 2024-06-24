@@ -1,16 +1,23 @@
 from setuptools import find_packages
 from setuptools import setup
 
+package_name = 'ros2component'
+
 setup(
-    name='ros2component',
-    version='0.6.3',
+    name=package_name,
+    version='0.34.0',
     packages=find_packages(exclude=['test']),
+    data_files=[
+        ('share/' + package_name, ['package.xml']),
+        ('share/ament_index/resource_index/packages',
+            ['resource/' + package_name]),
+    ],
     install_requires=['ros2cli'],
     zip_safe=True,
     author='Michel Hidalgo',
     author_email='michel@ekumenlabs.com',
-    maintainer='Michel Hidalgo',
-    maintainer_email='michel@ekumenlabs.com',
+    maintainer='Audrow Nash, Geoffrey Biggs',
+    maintainer_email='audrow@openrobotics.org, geoff@openrobotics.org',
     url='https://github.com/ros2/ros2cli/tree/master/ros2component',
     download_url='https://github.com/ros2/ros2cli/releases',
     keywords=[],

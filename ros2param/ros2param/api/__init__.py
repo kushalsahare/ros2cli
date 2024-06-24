@@ -12,102 +12,130 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
+import sys
+
 from rcl_interfaces.msg import ParameterType
-from rcl_interfaces.msg import ParameterValue
-from rcl_interfaces.srv import GetParameters
-from rcl_interfaces.srv import SetParameters
 import rclpy
-import yaml
+from rclpy.parameter import parameter_dict_from_yaml_file
+from rclpy.parameter import parameter_value_to_python
+from rclpy.parameter_client import AsyncParameterClient
+from ros2cli.node.direct import DirectNode
 
 
-def get_parameter_value(*, string_value):
-    """Guess the desired type of the parameter based on the string value."""
-    value = ParameterValue()
+def get_value(*, parameter_value):
+    """Get the value from a ParameterValue."""
+    value = None
     try:
-        yaml_value = yaml.safe_load(string_value)
-    except yaml.parser.ParserError:
-        value.type = ParameterType.PARAMETER_STRING
-        value.string_value = string_value
-        return value
-
-    if isinstance(yaml_value, bool):
-        value.type = ParameterType.PARAMETER_BOOL
-        value.bool_value = yaml_value
-    elif isinstance(yaml_value, int):
-        value.type = ParameterType.PARAMETER_INTEGER
-        value.integer_value = yaml_value
-    elif isinstance(yaml_value, float):
-        value.type = ParameterType.PARAMETER_DOUBLE
-        value.double_value = yaml_value
-    elif isinstance(yaml_value, list):
-        if all((isinstance(v, bool) for v in yaml_value)):
-            value.type = ParameterType.PARAMETER_BOOL_ARRAY
-            value.bool_array_value = yaml_value
-        elif all((isinstance(v, int) for v in yaml_value)):
-            value.type = ParameterType.PARAMETER_INTEGER_ARRAY
-            value.integer_array_value = yaml_value
-        elif all((isinstance(v, float) for v in yaml_value)):
-            value.type = ParameterType.PARAMETER_DOUBLE_ARRAY
-            value.double_array_value = yaml_value
-        elif all((isinstance(v, str) for v in yaml_value)):
-            value.type = ParameterType.PARAMETER_STRING_ARRAY
-            value.string_array_value = yaml_value
-        else:
-            value.type = ParameterType.PARAMETER_STRING
-            value.string_value = string_value
-    else:
-        value.type = ParameterType.PARAMETER_STRING
-        value.string_value = string_value
+        value = parameter_value_to_python(parameter_value)
+    except RuntimeError as e:
+        print(f'Runtime error {e} raised')
     return value
 
 
-def call_get_parameters(*, node, node_name, parameter_names):
-    # create client
-    client = node.create_client(
-        GetParameters,
-        '{node_name}/get_parameters'.format_map(locals()))
-
-    # call as soon as ready
-    ready = client.wait_for_service(timeout_sec=5.0)
+def load_parameter_file(*, node, node_name, parameter_file, use_wildcard):
+    client = AsyncParameterClient(node, node_name)
+    ready = client.wait_for_services(timeout_sec=5.0)
     if not ready:
-        raise RuntimeError('Wait for service timed out')
-
-    request = GetParameters.Request()
-    request.names = parameter_names
-    future = client.call_async(request)
+        raise RuntimeError('Wait for service timed out waiting for '
+                           f'parameter services for node {node_name}')
+    future = client.load_parameter_file(parameter_file, use_wildcard)
+    parameters = list(parameter_dict_from_yaml_file(parameter_file, use_wildcard).values())
     rclpy.spin_until_future_complete(node, future)
+    response = future.result()
+    assert len(response.results) == len(parameters), 'Not all parameters set'
+    for i in range(0, len(response.results)):
+        result = response.results[i]
+        param_name = parameters[i].name
+        if result.successful:
+            msg = 'Set parameter {} successful'.format(param_name)
+            if result.reason:
+                msg += ': ' + result.reason
+            print(msg)
+        else:
+            msg = 'Set parameter {} failed'.format(param_name)
+            if result.reason:
+                msg += ': ' + result.reason
+            print(msg, file=sys.stderr)
 
-    # handle response
+
+def call_describe_parameters(*, node, node_name, parameter_names=None):
+    client = AsyncParameterClient(node, node_name)
+    ready = client.wait_for_services(timeout_sec=5.0)
+    if not ready:
+        raise RuntimeError('Wait for service timed out waiting for '
+                           f'parameter services for node {node_name}')
+    future = client.describe_parameters(parameter_names)
+    rclpy.spin_until_future_complete(node, future)
     response = future.result()
     if response is None:
-        e = future.exception()
-        raise RuntimeError(
-            'Exception while calling service of node '
-            "'{args.node_name}': {e}".format_map(locals()))
+        raise RuntimeError('Exception while calling service of node '
+                           f'{node_name}: {future.exception()}')
+    return response
+
+
+def call_get_parameters(*, node, node_name, parameter_names):
+    client = AsyncParameterClient(node, node_name)
+    ready = client.wait_for_services(timeout_sec=5.0)
+    if not ready:
+        raise RuntimeError('Wait for service timed out waiting for '
+                           f'parameter services for node {node_name}')
+    future = client.get_parameters(parameter_names)
+    rclpy.spin_until_future_complete(node, future)
+    response = future.result()
+    if response is None:
+        raise RuntimeError('Exception while calling service of node '
+                           f'{node_name}: {future.exception()}')
     return response
 
 
 def call_set_parameters(*, node, node_name, parameters):
-    # create client
-    client = node.create_client(
-        SetParameters,
-        '{node_name}/set_parameters'.format_map(locals()))
-
-    # call as soon as ready
-    ready = client.wait_for_service(timeout_sec=5.0)
+    client = AsyncParameterClient(node, node_name)
+    ready = client.wait_for_services(timeout_sec=5.0)
     if not ready:
-        raise RuntimeError('Wait for service timed out')
-
-    request = SetParameters.Request()
-    request.parameters = parameters
-    future = client.call_async(request)
+        raise RuntimeError('Wait for service timed out waiting for '
+                           f'parameter services for node {node_name}')
+    future = client.set_parameters(parameters)
     rclpy.spin_until_future_complete(node, future)
-
-    # handle response
     response = future.result()
     if response is None:
-        e = future.exception()
-        raise RuntimeError(
-            'Exception while calling service of node '
-            "'{args.node_name}': {e}".format_map(locals()))
+        raise RuntimeError('Exception while calling service of node '
+                           f'{node_name}: {future.exception()}')
     return response
+
+
+def call_list_parameters(*, node, node_name, prefixes=None):
+    client = AsyncParameterClient(node, node_name)
+    ready = client.wait_for_services(timeout_sec=5.0)
+    if not ready:
+        return None
+    future = client.list_parameters(prefixes=prefixes)
+    rclpy.spin_until_future_complete(node, future)
+    return future
+
+
+def get_parameter_type_string(parameter_type):
+    mapping = {
+        ParameterType.PARAMETER_BOOL: 'boolean',
+        ParameterType.PARAMETER_INTEGER: 'integer',
+        ParameterType.PARAMETER_DOUBLE: 'double',
+        ParameterType.PARAMETER_STRING: 'string',
+        ParameterType.PARAMETER_BYTE_ARRAY: 'byte array',
+        ParameterType.PARAMETER_BOOL_ARRAY: 'boolean array',
+        ParameterType.PARAMETER_INTEGER_ARRAY: 'integer array',
+        ParameterType.PARAMETER_DOUBLE_ARRAY: 'double array',
+        ParameterType.PARAMETER_STRING_ARRAY: 'string array',
+        ParameterType.PARAMETER_NOT_SET: 'not set',
+    }
+    return mapping[parameter_type]
+
+
+class ParameterNameCompleter:
+    """Callable returning a list of parameter names."""
+
+    def __call__(self, prefix, parsed_args, **kwargs):
+        with DirectNode(parsed_args) as node:
+            parameter_names = call_list_parameters(
+                node=node, node_name=parsed_args.node_name)
+            return [
+                n for n in parameter_names
+                if not prefix or n.startswith(prefix)]

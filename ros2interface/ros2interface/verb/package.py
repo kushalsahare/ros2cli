@@ -12,24 +12,55 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-from ros2interface.api import get_interface
+import collections
+
 from ros2interface.api import package_name_completer
 from ros2interface.verb import VerbExtension
+from rosidl_runtime_py import get_action_interfaces, get_interfaces
+from rosidl_runtime_py import get_message_interfaces, get_service_interfaces
 
 
 class PackageVerb(VerbExtension):
     """Output a list of available interface types within one package."""
 
     def add_arguments(self, parser, cli_name):
+        parser.add_argument(
+            '-m', '--only-msgs', action='store_true',
+            help='Print out only the message types')
+
+        parser.add_argument(
+            '-s', '--only-srvs', action='store_true',
+            help='Print out only the service types')
+
+        parser.add_argument(
+            '-a', '--only-actions', action='store_true',
+            help='Print out only the action types')
+
         arg = parser.add_argument(
             'package_name',
-            help="Name of the ROS package (e.g. 'std_msgs, std_srvs, etc.')")
+            help="Name of the ROS package (e.g. 'example_interfaces')")
         arg.completer = package_name_completer
 
     def main(self, *, args):
+        interfaces = collections.defaultdict(list)
         try:
-            names = get_interface(args.package_name)
+            if not args.only_msgs and not args.only_srvs and not args.only_actions:
+                interfaces = get_interfaces([args.package_name])
+            else:
+                get_commands = []
+                if args.only_msgs:
+                    get_commands.append(get_message_interfaces)
+                if args.only_srvs:
+                    get_commands.append(get_service_interfaces)
+                if args.only_actions:
+                    get_commands.append(get_action_interfaces)
+
+                for get_interface_cmd in get_commands:
+                    pkg_interfaces = get_interface_cmd([args.package_name])
+                    for package_name, interface_names in pkg_interfaces.items():
+                        interfaces[package_name] += interface_names
         except LookupError as e:
             return str(e)
-        for name in names:
-            print('{args.package_name}/{name}'.format_map(locals()))
+        for package_name in sorted(interfaces):
+            for interface_name in interfaces[package_name]:
+                print(f'{package_name}/{interface_name}')

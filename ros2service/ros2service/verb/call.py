@@ -16,8 +16,10 @@ import importlib
 import time
 
 import rclpy
+from ros2cli.helpers import collect_stdin
 from ros2cli.node import NODE_NAME_PREFIX
 from ros2service.api import ServiceNameCompleter
+from ros2service.api import ServicePrototypeCompleter
 from ros2service.api import ServiceTypeCompleter
 from ros2service.verb import VerbExtension
 from rosidl_runtime_py import set_message_fields
@@ -38,11 +40,17 @@ class CallVerb(VerbExtension):
             help="Type of the ROS service (e.g. 'std_srvs/srv/Empty')")
         arg.completer = ServiceTypeCompleter(
             service_name_key='service_name')
-        parser.add_argument(
+        group = parser.add_mutually_exclusive_group()
+        arg = group.add_argument(
             'values', nargs='?', default='{}',
             help='Values to fill the service request with in YAML format ' +
-                 '(e.g. "{a: 1, b: 2}"), ' +
+                 "(e.g. '{a: 1, b: 2}'), " +
                  'otherwise the service request will be published with default values')
+        arg.completer = ServicePrototypeCompleter(
+            service_type_key='service_type')
+        group.add_argument(
+            '--stdin', action='store_true',
+            help='Read values from standard input')
         parser.add_argument(
             '-r', '--rate', metavar='N', type=float,
             help='Repeat the call at a specific rate in Hz')
@@ -52,8 +60,13 @@ class CallVerb(VerbExtension):
             raise RuntimeError('rate must be greater than zero')
         period = 1. / args.rate if args.rate else None
 
+        if args.stdin:
+            values = collect_stdin()
+        else:
+            values = args.values
+
         return requester(
-            args.service_type, args.service_name, args.values, period)
+            args.service_type, args.service_name, values, period)
 
 
 def requester(service_type, service_name, values, period):
@@ -66,10 +79,13 @@ def requester(service_type, service_name, values, period):
         module = importlib.import_module('.'.join(parts[:-1]))
         srv_name = parts[-1]
         srv_module = getattr(module, srv_name)
-        if not package_name or not srv_module:
-            raise ValueError()
-    except ValueError:
+    except (AttributeError, ModuleNotFoundError, ValueError):
         raise RuntimeError('The passed service type is invalid')
+    try:
+        srv_module.Request
+        srv_module.Response
+    except AttributeError:
+        raise RuntimeError('The passed type is not a service')
 
     values_dictionary = yaml.safe_load(values)
 

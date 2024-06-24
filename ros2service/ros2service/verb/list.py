@@ -29,6 +29,10 @@ class ListVerb(VerbExtension):
         parser.add_argument(
             '-c', '--count-services', action='store_true',
             help='Only display the number of services discovered')
+        # duplicate the following argument from the command for visibility
+        parser.add_argument(
+            '--include-hidden-services', action='store_true',
+            help='Consider hidden services as well')
 
     def main(self, *, args):
         with NodeStrategy(args) as node:
@@ -40,8 +44,8 @@ class ListVerb(VerbExtension):
             print(len(service_names_and_types))
         elif service_names_and_types:
             for (service_name, service_types) in service_names_and_types:
-                msg = '{service_name}'
+                msg = f'{service_name}'
                 service_types_formatted = ', '.join(service_types)
                 if args.show_types:
-                    msg += ' [{service_types_formatted}]'
-                print(msg.format_map(locals()))
+                    msg += f' [{service_types_formatted}]'
+                print(msg)

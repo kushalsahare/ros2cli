@@ -1,16 +1,23 @@
 from setuptools import find_packages
 from setuptools import setup
 
+package_name = 'ros2interface'
+
 setup(
-    name='ros2interface',
-    version='0.7.4',
+    name=package_name,
+    version='0.34.0',
     packages=find_packages(exclude=['test']),
+    data_files=[
+        ('share/' + package_name, ['package.xml']),
+        ('share/ament_index/resource_index/packages',
+            ['resource/' + package_name]),
+    ],
     install_requires=['ros2cli'],
     zip_safe=True,
-    author='Siddharth Kucheria',
-    author_email='kucheria@osrfoundation.org',
-    maintainer='Jacob Perron',
-    maintainer_email='jacob@osrfoundation.org',
+    author='Siddharth Kucheria, Jacob Perron',
+    author_email='kucheria@osrfoundation.org, jacob@osrfoundation.org',
+    maintainer='Audrow Nash, Geoffrey Biggs',
+    maintainer_email='audrow@openrobotics.org, geoff@openrobotics.org',
     url='https://github.com/ros2/ros2cli/tree/master/ros2interface',
     download_url='https://github.com/ros2/ros2cli/releases',
     keywords=[],
@@ -34,8 +41,9 @@ The package provides the interface command for the ROS 2 command line tools.""",
         ],
         'ros2interface.verb': [
             'list = ros2interface.verb.list:ListVerb',
-            'packages = ros2interface.verb.packages:PackagesVerb',
             'package = ros2interface.verb.package:PackageVerb',
+            'proto = ros2interface.verb.proto:ProtoVerb',
+            'packages = ros2interface.verb.packages:PackagesVerb',
             'show = ros2interface.verb.show:ShowVerb',
         ],
     }

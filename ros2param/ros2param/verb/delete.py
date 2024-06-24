@@ -21,9 +21,10 @@ from ros2cli.node.direct import DirectNode
 from ros2cli.node.strategy import add_arguments
 from ros2cli.node.strategy import NodeStrategy
 from ros2node.api import get_absolute_node_name
-from ros2node.api import get_node_names
 from ros2node.api import NodeNameCompleter
+from ros2node.api import wait_for_node
 from ros2param.api import call_set_parameters
+from ros2param.api import ParameterNameCompleter
 from ros2param.verb import VerbExtension
 
 
@@ -39,21 +40,22 @@ class DeleteVerb(VerbExtension):
         parser.add_argument(
             '--include-hidden-nodes', action='store_true',
             help='Consider hidden nodes as well')
+        arg = parser.add_argument(
+            'parameter_name', help='Name of the parameter')
+        arg.completer = ParameterNameCompleter()
         parser.add_argument(
-            'name', help='Name of the parameter')
+            '--timeout', metavar='N', type=int, default=1,
+            help='Wait for N seconds until node becomes available (default %(default)s sec)')
 
     def main(self, *, args):  # noqa: D102
-        with NodeStrategy(args) as node:
-            node_names = get_node_names(
-                node=node, include_hidden_nodes=args.include_hidden_nodes)
-
         node_name = get_absolute_node_name(args.node_name)
-        if node_name not in [n.full_name for n in node_names]:
-            return 'Node not found'
+        with NodeStrategy(args) as node:
+            if not wait_for_node(node, node_name, args.include_hidden_nodes, args.timeout):
+                return 'Node not found'
 
         with DirectNode(args) as node:
             parameter = Parameter()
-            Parameter.name = args.name
+            Parameter.name = args.parameter_name
             value = ParameterValue()
             value.type = ParameterType.PARAMETER_NOT_SET
             parameter.value = value

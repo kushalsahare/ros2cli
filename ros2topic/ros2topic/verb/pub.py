@@ -13,15 +13,36 @@
 # limitations under the License.
 
 import time
+from typing import Optional
+from typing import TypeVar
 
 import rclpy
-from ros2cli.node import NODE_NAME_PREFIX
-from ros2topic.api import import_message_type
+from rclpy.node import Node
+from rclpy.qos import QoSProfile
+from ros2cli.helpers import collect_stdin
+from ros2cli.node.direct import add_arguments as add_direct_node_arguments
+from ros2cli.node.direct import DirectNode
+from ros2topic.api import add_qos_arguments
+from ros2topic.api import positive_float
+from ros2topic.api import profile_configure_short_keys
+from ros2topic.api import TopicMessagePrototypeCompleter
 from ros2topic.api import TopicNameCompleter
 from ros2topic.api import TopicTypeCompleter
 from ros2topic.verb import VerbExtension
 from rosidl_runtime_py import set_message_fields
+from rosidl_runtime_py.utilities import get_message
 import yaml
+
+MsgType = TypeVar('MsgType')
+DEFAULT_WAIT_TIME = 0.1
+
+
+def nonnegative_int(inval):
+    ret = int(inval)
+    if ret < 0:
+        # The error message here gets completely swallowed by argparse
+        raise ValueError('Value must be positive or zero')
+    return ret
 
 
 class PubVerb(VerbExtension):
@@ -38,99 +59,157 @@ class PubVerb(VerbExtension):
             help="Type of the ROS message (e.g. 'std_msgs/String')")
         arg.completer = TopicTypeCompleter(
             topic_name_key='topic_name')
-        parser.add_argument(
+        group = parser.add_mutually_exclusive_group()
+        arg = group.add_argument(
             'values', nargs='?', default='{}',
             help='Values to fill the message with in YAML format '
-                 '(e.g. "data: Hello World"), '
+                 "(e.g. 'data: Hello World'), "
                  'otherwise the message will be published with default values')
+        arg.completer = TopicMessagePrototypeCompleter(
+            topic_type_key='message_type')
+        group.add_argument(
+            '--stdin', action='store_true',
+            help='Read values from standard input')
         parser.add_argument(
-            '-r', '--rate', metavar='N', type=float, default=1.0,
+            '-r', '--rate', metavar='N', type=positive_float, default=1.0,
             help='Publishing rate in Hz (default: 1)')
         parser.add_argument(
             '-p', '--print', metavar='N', type=int, default=1,
             help='Only print every N-th published message (default: 1)')
-        parser.add_argument(
+        group = parser.add_mutually_exclusive_group()
+        group.add_argument(
             '-1', '--once', action='store_true',
             help='Publish one message and exit')
+        group.add_argument(
+            '-t', '--times', type=nonnegative_int, default=0,
+            help='Publish this number of times and then exit')
+        parser.add_argument(
+            '-w', '--wait-matching-subscriptions', type=nonnegative_int, default=None,
+            help=(
+                'Wait until finding the specified number of matching subscriptions. '
+                'Defaults to 1 when using "-1"/"--once"/"--times", otherwise defaults to 0.'))
+        parser.add_argument(
+            '--max-wait-time-secs', type=positive_float, default=None,
+            help=(
+                'This sets the maximum wait time in seconds if '
+                '--wait-until-matching-subscriptions is set. '
+                'By default, this flag is not set meaning the subscriber will wait endlessly.'))
+        parser.add_argument(
+            '--keep-alive', metavar='N', type=positive_float, default=0.1,
+            help='Keep publishing node alive for N seconds after the last msg '
+                 '(default: 0.1)')
         parser.add_argument(
             '-n', '--node-name',
             help='Name of the created publishing node')
-        parser.add_argument(
-            '--qos-profile',
-            choices=rclpy.qos.QoSPresetProfiles.short_keys(),
-            default='system_default',
-            help='Quality of service profile to publish with')
-        parser.add_argument(
-            '--qos-reliability',
-            choices=rclpy.qos.QoSReliabilityPolicy.short_keys(),
-            help='Quality of service reliability setting to publish with. '
-                 '(Will override reliability value of --qos-profile option)')
-        parser.add_argument(
-            '--qos-durability',
-            choices=rclpy.qos.QoSDurabilityPolicy.short_keys(),
-            help='Quality of service durability setting to publish with. '
-                 '(Will override durability value of --qos-profile option)')
+        add_qos_arguments(parser, 'publish', 'default')
+        add_direct_node_arguments(parser)
 
     def main(self, *, args):
-        if args.rate <= 0:
-            raise RuntimeError('rate must be greater than zero')
-
         return main(args)
 
 
 def main(args):
-    return publisher(
-        args.message_type, args.topic_name, args.values,
-        args.node_name, 1. / args.rate, args.print, args.once,
-        args.qos_profile, args.qos_reliability, args.qos_durability)
+    qos_profile_name = args.qos_profile
+    qos_profile = rclpy.qos.QoSPresetProfiles.get_from_short_key(qos_profile_name)
+    profile_configure_short_keys(
+        qos_profile, args.qos_reliability, args.qos_durability,
+        args.qos_depth, args.qos_history, args.qos_liveliness,
+        args.qos_liveliness_lease_duration_seconds)
+
+    times = args.times
+    if args.once:
+        times = 1
+
+    if args.stdin:
+        values = collect_stdin()
+    else:
+        values = args.values
+
+    with DirectNode(args, node_name=args.node_name) as node:
+        return publisher(
+            node.node,
+            args.message_type,
+            args.topic_name,
+            values,
+            1. / args.rate,
+            args.print,
+            times,
+            args.wait_matching_subscriptions
+            if args.wait_matching_subscriptions is not None else int(times != 0),
+            args.max_wait_time_secs,
+            qos_profile,
+            args.keep_alive)
 
 
 def publisher(
-    message_type, topic_name, values, node_name, period, print_nth, once,
-    qos_profile, qos_reliability, qos_durability
-):
-    msg_module = import_message_type(topic_name, message_type)
+    node: Node,
+    message_type: MsgType,
+    topic_name: str,
+    values: dict,
+    period: float,
+    print_nth: int,
+    times: int,
+    wait_matching_subscriptions: int,
+    max_wait_time: Optional[float],
+    qos_profile: QoSProfile,
+    keep_alive: float,
+) -> Optional[str]:
+    """Initialize a node with a single publisher and run its publish loop (maybe only once)."""
+    try:
+        msg_module = get_message(message_type)
+    except (AttributeError, ModuleNotFoundError, ValueError):
+        raise RuntimeError('The passed message type is invalid')
     values_dictionary = yaml.safe_load(values)
     if not isinstance(values_dictionary, dict):
         return 'The passed value needs to be a dictionary in YAML format'
-    if not node_name:
-        node_name = NODE_NAME_PREFIX + '_publisher_%s' % (message_type.replace('/', '_'), )
-    rclpy.init()
 
-    # Build a QoS profile based on user-supplied arguments
-    profile = rclpy.qos.QoSPresetProfiles.get_from_short_key(qos_profile)
-    if qos_durability:
-        profile.durability = rclpy.qos.QoSDurabilityPolicy.get_from_short_key(qos_durability)
-    if qos_reliability:
-        profile.reliability = rclpy.qos.QoSReliabilityPolicy.get_from_short_key(qos_reliability)
+    pub = node.create_publisher(msg_module, topic_name, qos_profile)
 
-    node = rclpy.create_node(node_name)
+    if wait_matching_subscriptions == 0 and max_wait_time is not None:
+        return '--max-wait-time-secs option is only effective' \
+            ' with --wait-matching-subscriptions, --once or --times'
 
-    pub = node.create_publisher(msg_module, topic_name, profile)
+    times_since_last_log = 0
+    total_wait_time = 0
+    while pub.get_subscription_count() < wait_matching_subscriptions:
+        # Print a message reporting we're waiting each 1s, check condition each 100ms.
+        if not times_since_last_log:
+            print(
+                f'Waiting for at least {wait_matching_subscriptions} matching subscription(s)...')
+        if max_wait_time is not None and max_wait_time <= total_wait_time:
+            return f'Timed out waiting for subscribers: Expected {wait_matching_subscriptions}' \
+                f' subcribers but only got {pub.get_subscription_count()} subscribers'
+        times_since_last_log = (times_since_last_log + 1) % 10
+        time.sleep(DEFAULT_WAIT_TIME)
+        total_wait_time += DEFAULT_WAIT_TIME
 
     msg = msg_module()
     try:
-        set_message_fields(msg, values_dictionary)
+        timestamp_fields = set_message_fields(
+            msg, values_dictionary, expand_header_auto=True, expand_time_now=True)
     except Exception as e:
         return 'Failed to populate field: {0}'.format(e)
-
     print('publisher: beginning loop')
     count = 0
 
     def timer_callback():
+        stamp_now = node.get_clock().now().to_msg()
+        for field_setter in timestamp_fields:
+            field_setter(stamp_now)
         nonlocal count
         count += 1
         if print_nth and count % print_nth == 0:
             print('publishing #%d: %r\n' % (count, msg))
         pub.publish(msg)
 
-    timer = node.create_timer(period, timer_callback)
-    if once:
-        rclpy.spin_once(node)
-        time.sleep(0.1)  # make sure the message reaches the wire before exiting
+    timer_callback()
+    if times != 1:
+        timer = node.create_timer(period, timer_callback)
+        while times == 0 or count < times:
+            rclpy.spin_once(node)
+        # give some time for the messages to reach the wire before exiting
+        time.sleep(keep_alive)
+        node.destroy_timer(timer)
     else:
-        rclpy.spin(node)
-
-    node.destroy_timer(timer)
-    node.destroy_node()
-    rclpy.shutdown()
+        # give some time for the messages to reach the wire before exiting
+        time.sleep(keep_alive)
